@@ -1,16 +1,28 @@
 var canvas, ctx;
 var width, height, birdPos;
-var sky, land, bird, pipe, pipeUp, pipeDown, scoreBoard, ready, splash;
+var sky, land, bird, birdFlap, pipe, pipeUp, pipeDown, scoreBoard, ready, splash;
 var dist, birdY, birdF, birdN, birdV;
 var animation, death, deathAnim;
 var pipes = [], pipesDir = [], pipeSt, pipeNumber;
-var score, maxScore;
+var score, maxScore, highScore;
 var dropSpeed;
 var flashlight_switch = false, hidden_switch = false;
 var mode, delta;
 var wechat = false;
 var playend = false, playdata = [];
 var wxData;
+var flapSound, hitSound, music, gameOverMusic, firstHitMusic;
+var isFlapping = false;
+var musicStarted = false;
+var hasScored = false; // Track if player has scored at least 1 point in current game
+
+// Hitbox adjustment values (percentage of image size to use as actual hitbox)
+var hitboxPadding = {
+	left: 0.25,    // 25% padding from left
+	right: 0.25,   // 25% padding from right
+	top: 0.15,     // 15% padding from top
+	bottom: 0.15   // 15% padding from bottom
+};
 
 var clearCanvas = function(){
 	ctx.fillStyle = '#4EC0CA';
@@ -18,7 +30,7 @@ var clearCanvas = function(){
 }
 
 var loadImages = function(){
-	var imgNumber = 9, imgComplete = 0;
+	var imgNumber = 10, imgComplete = 0;
 	var onImgLoad = function(){
 		imgComplete++;
 		if(imgComplete == imgNumber){
@@ -48,11 +60,15 @@ var loadImages = function(){
 	
 	land = new Image();
 	land.src = 'images/land.png';
-	land.onload = onImgLoad;
+	land. onload = onImgLoad;
 	
 	bird = new Image();
 	bird.src = 'images/bird.png';
 	bird.onload = onImgLoad;
+	
+	birdFlap = new Image();
+	birdFlap.src = 'images/bird1.png';
+	birdFlap.onload = onImgLoad;
 	
 	pipe = new Image();
 	pipe.src = 'images/pipe.png';
@@ -77,6 +93,15 @@ var loadImages = function(){
 	splash = new Image();
 	splash.src = 'images/splash.png';
 	splash.onload = onImgLoad;
+	
+	// Load audio files
+	flapSound = new Audio('sounds/podey_flap.mp3');
+	hitSound = new Audio('sounds/ayyo_end.mp3');
+	firstHitMusic = new Audio('sounds/enthaJomuCut.mp3'); // Music for first hit (score = 0)
+	music = new Audio('sounds/background.mp3');
+	music.loop = true; // Loop background music
+	
+	// gameOverMusic = new Audio('sounds/Chicken.mp3'); // Add your game over music file
 }
 
 function is_touch_device() {  
@@ -88,6 +113,18 @@ function is_touch_device() {
   }  
 }
 
+// Function to start music on first interaction
+var startMusic = function(){
+	if(!musicStarted){
+		try {
+			music.play().catch(e => console.log('Music play failed:', e));
+			musicStarted = true;
+		} catch(e) {
+			console.log('Audio error:', e);
+		}
+	}
+}
+
 var initCanvas = function(){
 	canvas = document.getElementById("canvas");
 	ctx = canvas.getContext('2d');
@@ -96,18 +133,43 @@ var initCanvas = function(){
 	if(is_touch_device()){
 		canvas.addEventListener("touchend", function(e) { e.preventDefault(); }, false);
         canvas.addEventListener("touchstart", function(e) {
+	        	startMusic();
 	        	jump();
             e.preventDefault();
         }, false);
 	}
-	else
-		canvas.onmousedown = jump;
-	window.onkeydown = jump;
+	else {
+		canvas.onmousedown = function(){
+			startMusic();
+			jump();
+		};
+	}
+	window.onkeydown = function(){
+		startMusic();
+		jump();
+	};
+	
+	// Add click listener to body for music
+	document.body.addEventListener('click', startMusic);
+	document.body.addEventListener('touchstart', startMusic);
+	
 	FastClick.attach(canvas);
 	loadImages();
 }
 
 var deathAnimation = function(){
+	// Stop background music and play game over music
+	try {
+		music.pause();
+		music.currentTime = 0;
+		setTimeout(()=>{
+			gameOverMusic.currentTime = 0;
+			gameOverMusic.play().catch(e => console.log('Game over music failed:', e));
+		}, 1000)
+	} catch(e) {
+		console.log('Audio error:', e);
+	}
+	
 	if(splash){
 		ctx.drawImage(splash, width / 2 - 94, height / 2 - 54);
 		splash = undefined;
@@ -116,12 +178,17 @@ var deathAnimation = function(){
         ctx.drawImage(scoreBoard, width / 2 - 118, height / 2 - 54);
         playend = true;
         playdata = [mode, score];
-        if(window.window.WeixinApi && window.WeixinJSBridge) {
+        if(window.window. WeixinApi && window.WeixinJSBridge) {
             //alert("您在 " + ["easy", "normal", "hard"][mode] + " 模式中取得 " + score + " 分，右上角分享成绩到朋友圈吧~");
         }
     }
 	ctx.drawImage(ready, width / 2 - 57, height / 2 + 10);
 	maxScore = Math.max(maxScore, score);
+	
+	// Update high score
+	if(score > highScore){
+		highScore = score;
+	}
 }
 
 var drawSky = function(){
@@ -136,13 +203,29 @@ var drawLand = function(){
 	var totWidth = -dist;
 	while(totWidth < width){
 		ctx.drawImage(land, totWidth, height - 112);
-		totWidth += land.width;
+		totWidth += land. width;
 	}
 	dist = dist + 2;
 	var tmp = Math.floor(dist - width * 0.65) % 220;
 	if(dist >= width * 0.65 && Math.abs(tmp) <= 1){
 		score++;
+		hasScored = true; // Player has now scored
 	}
+}
+
+// Get actual hitbox coordinates accounting for transparent areas
+var getBirdHitbox = function(){
+	var paddingLeft = bird.width * hitboxPadding.left;
+	var paddingRight = bird.width * hitboxPadding.right;
+	var paddingTop = bird.height * hitboxPadding.top;
+	var paddingBottom = bird. height * hitboxPadding. bottom;
+	
+	return {
+		left: birdPos + paddingLeft,
+		right: birdPos + bird.width - paddingRight,
+		top: birdY + paddingTop,
+		bottom: birdY + bird.height - paddingBottom
+	};
 }
 
 var drawPipe = function(x, y){
@@ -150,11 +233,39 @@ var drawPipe = function(x, y){
 	ctx.drawImage(pipeDown, x, y);
 	ctx.drawImage(pipe, x, y + 168 + delta, pipe.width, height - 112);
 	ctx.drawImage(pipeUp, x, y + 144 + delta);
-	if(x < birdPos + 32 && x + 50 > birdPos && (birdY < y + 22 || birdY + 22 > y + 144 + delta)){
-		clearInterval(animation);
-		death = 1;
+	
+	// Get bird's actual hitbox (excluding transparent areas)
+	var birdHitbox = getBirdHitbox();
+	
+	var pipeLeft = x;
+	var pipeRight = x + pipe.width;
+	var topPipeBottom = y + 22; // pipeDown cap height
+	var bottomPipeTop = y + 144 + delta; // pipeUp cap position
+	
+	// Check if bird hitbox is horizontally aligned with pipe
+	if(birdHitbox.right > pipeLeft && birdHitbox.left < pipeRight){
+		// Check if bird hits top pipe or bottom pipe
+		if(birdHitbox.top < topPipeBottom || birdHitbox.bottom > bottomPipeTop){
+			clearInterval(animation);
+			death = 1;
+			// Play appropriate hit sound based on whether player has scored
+			try {
+				if(! hasScored){
+					// Player hasn't scored yet (score = 0), play special music
+					firstHitMusic.currentTime = 0;
+					firstHitMusic.play().catch(e => console.log('First hit music failed:', e));
+				} else {
+					// Player has scored (score >= 1), play normal hit sound
+					hitSound.currentTime = 0;
+					hitSound.play().catch(e => console.log('Hit sound failed:', e));
+				}
+			} catch(e) {
+				console.log('Audio error:', e);
+			}
+		}
 	}
-	else if(x + 40 < 0){
+	
+	if(x + 40 < 0){
 		pipeSt++;
 		pipeNumber++;
 		pipes.push(Math.floor(Math.random() * (height - 300 - delta) + 10));
@@ -164,23 +275,65 @@ var drawPipe = function(x, y){
 }
 
 var drawBird = function(){
-//	ctx.translate(width * 0.35 + 17, birdY + 12);
-//	var deg = -Math.atan(birdV / 2) / 3.14159;
-//	ctx.rotate(deg);
-	ctx.drawImage(bird, 0, birdN * 24, bird.width, bird.height / 4, birdPos, birdY, bird.width, bird.height / 4);
-//	ctx.rotate(-deg);
-//	ctx.translate(-width * 0.35 - 17, -birdY - 12);
-	birdF = (birdF + 1) % 6;
-	if(birdF % 6 == 0)
-		birdN = (birdN + 1) % 4;
-	birdY -= birdV;
-	birdV -= dropSpeed;
-	if(birdY + 138 > height){
+	// Draw the bird - use flapping image when isFlapping is true
+	var currentBirdImage = isFlapping ? birdFlap : bird;
+	ctx.drawImage(currentBirdImage, birdPos, birdY, bird.width, bird.height);
+	
+	// Optional: Draw hitbox for debugging (uncomment to see hitbox)
+	// var hitbox = getBirdHitbox();
+	// ctx.strokeStyle = 'red';
+	// ctx.lineWidth = 2;
+	// ctx.strokeRect(hitbox.left, hitbox.top, hitbox.right - hitbox.left, hitbox.bottom - hitbox. top);
+    
+    // Update bird position based on velocity
+    birdY -= birdV;
+    birdV -= dropSpeed;
+    
+	// Get bird's actual hitbox
+	var birdHitbox = getBirdHitbox();
+	
+    // Check ground collision (bottom of bird hitbox hits the ground)
+    if(birdHitbox.bottom >= height - 112){
+        clearInterval(animation);
+        death = 1;
+		// Play appropriate hit sound based on whether player has scored
+		try {
+			if(!hasScored){
+				// Player hasn't scored yet (score = 0), play special music
+				firstHitMusic.currentTime = 0;
+				firstHitMusic. play().catch(e => console. log('First hit music failed:', e));
+			} else {
+				// Player has scored (score >= 1), play normal hit sound
+				hitSound.currentTime = 0;
+				hitSound.play().catch(e => console.log('Hit sound failed:', e));
+			}
+		} catch(e) {
+			console.log('Audio error:', e);
+		}
+    }
+	
+	// Check ceiling collision
+	if(birdHitbox.top <= 0){
 		clearInterval(animation);
 		death = 1;
+		// Play appropriate hit sound based on whether player has scored
+		try {
+			if(!hasScored){
+				// Player hasn't scored yet (score = 0), play special music
+				firstHitMusic.currentTime = 0;
+				firstHitMusic.play().catch(e => console.log('First hit music failed:', e));
+			} else {
+				// Player has scored (score >= 1), play normal hit sound
+				hitSound.currentTime = 0;
+				hitSound. play().catch(e => console. log('Hit sound failed:', e));
+			}
+		} catch(e) {
+			console.log('Audio error:', e);
+		}
 	}
-	if(death)
-		deathAnimation();
+    
+    if(death)
+        deathAnimation();
 }
 
 var drawScore = function(){
@@ -188,9 +341,17 @@ var drawScore = function(){
 	ctx.lineWidth = 5;
     ctx.strokeStyle = '#fff';
 	ctx.fillStyle = '#000';
+	
+	// Draw current score
 	var txt = "" + score;
 	ctx.strokeText(txt, (width - ctx.measureText(txt).width) / 2, height * 0.15);
 	ctx.fillText(txt, (width - ctx.measureText(txt).width) / 2, height * 0.15);
+	
+	// Draw high score in top right corner (resets on page refresh)
+	ctx.font = '14px "Press Start 2P"';
+	var highScoreTxt = "HI:  " + highScore;
+	ctx.strokeText(highScoreTxt, width - ctx.measureText(highScoreTxt).width - 20, 30);
+	ctx.fillText(highScoreTxt, width - ctx.measureText(highScoreTxt).width - 20, 30);
 }
 
 var drawShadow = function() {
@@ -225,7 +386,7 @@ var drawCanvas = function(){
 		if(mode == 2){
 			if(pipesDir[i]){
 				if(pipes[i] + 1 > height - 300){
-					pipesDir[i] = !pipesDir[i];
+					pipesDir[i] = ! pipesDir[i];
 					pipes[i] -= 1;
 				}
 				else
@@ -263,17 +424,50 @@ var jump = function(){
 		birdV = 0;
 		death = 0;
 		score = 0;
+		hasScored = false; // Reset for new game
 		birdPos = width * 0.35;
 		pipeSt = 0;
 		pipeNumber = 10;
 		pipes = [];
 		pipesDir = [];
+		isFlapping = false;
 		for(var i = 0; i < 10; ++i){
 			pipes.push(Math.floor(Math.random() * (height - 300 - delta) + 10));
 			pipesDir.push((Math.random() > 0.5));
 		}
+		
+		// Restart background music
+		try {
+			gameOverMusic.pause();
+			gameOverMusic.currentTime = 0;
+			firstHitMusic.pause();
+			firstHitMusic.currentTime = 0;
+			music.currentTime = 0;
+			music.play().catch(e => console.log('Music play failed:', e));
+		} catch(e) {
+			console.log('Audio error:', e);
+		}
+		
 		anim();
 	}
+	else {
+		// Set flapping to true
+		isFlapping = true;
+		
+		// Play flap sound
+		try {
+			flapSound.currentTime = 0;
+			flapSound.play().catch(e => console.log('Flap sound failed:', e));
+		} catch(e) {
+			console.log('Audio error:', e);
+		}
+		
+		// Reset to normal bird image after 150ms
+		setTimeout(function(){
+			isFlapping = false;
+		}, 150);
+	}
+	
 	if(mode == 0)
 		birdV = 6;
 	else if(mode == 1)
@@ -285,7 +479,7 @@ var jump = function(){
 var easy, normal, hard;
 
 function easyMode(){
-	easy.style["box-shadow"] = "0 0 0 2px #165CF3";
+	easy. style["box-shadow"] = "0 0 0 2px #165CF3";
 	normal.style["box-shadow"] = "";
 	hard.style["box-shadow"] = "";
 	clearInterval(animation);
@@ -332,6 +526,11 @@ window.onload = function(){
     mode = 0;
     score = 0;
     playdata = [0, 0];
+    
+    // High score resets on page refresh (does NOT use localStorage)
+    highScore = 0;
+    hasScored = false;
+    
     if(window.window.WeixinApi || window.WeixinJSBridge) {
         wechat = true;
         WeixinApi.ready(function(Api) {
@@ -339,7 +538,7 @@ window.onload = function(){
             wxData = {
                 "appId": "",
                 "imgUrl" : 'http://shud.in/flappybird/images/logo.png',
-                "imgWidth": '200',
+                "imgWidth":  '200',
                 "imgHeight": '200',
                 "link" : 'http://shud.in/flappybird',
                 "desc" : 'Easy / Normal / Hard 三种难度, Flappy Bird 网页版',
@@ -347,7 +546,7 @@ window.onload = function(){
             };
 
             var wxCallbacks = {
-                ready : function() {
+                ready :  function() {
                     wxData["title"] = 'Flappy Bird';
                     if(flashlight_switch)
                         wxData["desc"] = '我刚刚开启 flashlight, 在 ' + ["easy", "normal", "hard"][playdata[0]] + ' 下取得 ' + playdata[1] + ' 分, 你也来试试吧！';
@@ -392,6 +591,7 @@ window.onload = function(){
     hard.onclick = hardMode;
 	document.getElementById("flashlight").onclick = flashlight;
 	//document.getElementById("hidden").onclick = hidden;
+	
 	window.onresize = function() {
 		canvas.width = width = window.innerWidth;
 		canvas.height = height = window.innerHeight;
