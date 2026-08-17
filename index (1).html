@@ -334,41 +334,6 @@
 		padding: 0;
 	}
 
-	#avatarToggleOption {
-		left: 2px;
-		top: 118px;
-		width: auto;
-		height: auto;
-		background: none;
-		padding: 0;
-	}
-
-	#avatarToggleBtn {
-		font-family: 'Press Start 2P', monospace;
-		font-size: 9px;
-		padding: 10px 14px;
-		color: #fff;
-		background: #74d4b3;
-		border: 4px solid #5b3a29;
-		border-radius: 6px;
-		box-shadow: 0 4px 0 #3f9c7c;
-		cursor: pointer;
-		text-shadow: 1px 1px 0 #3f9c7c;
-	}
-
-	#avatarToggleBtn:active {
-		transform: translateY(3px);
-		box-shadow: 0 1px 0 #3f9c7c;
-	}
-
-	#avatarToggleBtn:disabled {
-		background: #9a9a9a;
-		box-shadow: 0 4px 0 #5a5a5a;
-		color: #eee;
-		cursor: not-allowed;
-		text-shadow: none;
-	}
-
 	canvas {
 		-webkit-tap-highlight-color: transparent;
 	}
@@ -380,7 +345,6 @@
 	<div id="normal" class="option">normal</div>
 	<div id="hard" class="option">hard</div>
 	<div id="avatarOption" class="option"><button id="openBtn">CREATE AVATAR</button></div>
-	<div id="avatarToggleOption" class="option"><button id="avatarToggleBtn" disabled>AVATAR: OFF</button></div>
 
 	<!-- ===== popup panel ===== -->
 	<div id="overlay">
@@ -455,43 +419,6 @@
   const statusEl = document.getElementById('status');
   const preview1 = document.getElementById('preview1');
   const preview2 = document.getElementById('preview2');
-  const avatarToggleBtn = document.getElementById('avatarToggleBtn');
-
-  // ---------- avatar toggle ----------
-  // bird / birdFlap are the sprite Image objects used by the game (fb.js).
-  // These are captured lazily so we keep whatever fb.js originally set.
-  let birdOriginalSrc = null;
-  let birdFlapOriginalSrc = null;
-  let avatarOn = false;
-
-  function captureOriginalSprites() {
-    if (birdOriginalSrc === null && typeof bird !== 'undefined' && bird) {
-      birdOriginalSrc = bird.src;
-    }
-    if (birdFlapOriginalSrc === null && typeof birdFlap !== 'undefined' && birdFlap) {
-      birdFlapOriginalSrc = birdFlap.src;
-    }
-  }
-
-  function applyAvatarState() {
-    if (typeof bird === 'undefined' || typeof birdFlap === 'undefined') return;
-    captureOriginalSprites();
-    if (avatarOn && window.photo1 && window.photo2) {
-      bird.src = window.photo1;
-      birdFlap.src = window.photo2;
-      avatarToggleBtn.textContent = 'AVATAR: ON';
-    } else {
-      bird.src = birdOriginalSrc;
-      birdFlap.src = birdFlapOriginalSrc;
-      avatarToggleBtn.textContent = 'AVATAR: OFF';
-    }
-  }
-
-  avatarToggleBtn.addEventListener('click', () => {
-    if (!window.photo1 || !window.photo2) return;
-    avatarOn = !avatarOn;
-    applyAvatarState();
-  });
 
 
   // ---------- popup open / close ----------
@@ -583,7 +510,6 @@
       preview2.getContext('2d').drawImage(canvas, 0, 0);
       statusEl.textContent = 'GAME OVER — both photos captured!';
       doneBtn.style.display = 'inline-block';
-      avatarToggleBtn.disabled = false;
     }
 
     captureBtn.textContent = `SNAP (${captureCount}/2)`;
@@ -603,12 +529,6 @@
     preview1.getContext('2d').clearRect(0, 0, OUT_SIZE, OUT_SIZE);
     preview2.getContext('2d').clearRect(0, 0, OUT_SIZE, OUT_SIZE);
     statusEl.textContent = 'Reset — ready to flap again.';
-
-    window.photo1 = null;
-    window.photo2 = null;
-    avatarToggleBtn.disabled = true;
-    avatarOn = false;
-    applyAvatarState();
   });
 </script>
 <script type="application/javascript" src="fb.js"></script>
